@@ -39,5 +39,6 @@ subprocess.run([
 
 # 5. Upload TOML to GCS
 subprocess.run([
-    "gcloud", "storage", "cp", toml_file, f"gs://your-bucket-name/rss_data/"
+    "gcloud", "storage", "cp", toml_file, f"gs://weather-xml-json-toml-storage
+/rss_data/"
 ], check=True)
