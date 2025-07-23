@@ -3,7 +3,7 @@ name: RSS Weather to GCP
 on:
   schedule:
     - cron: '*/1 * * * *'  # Every minute
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   rss-pipeline:
