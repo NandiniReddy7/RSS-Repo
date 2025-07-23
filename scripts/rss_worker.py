@@ -1,46 +1,43 @@
-# scripts/rss_worker.py
-
-import os
-import json
-import base64
-import toml
-import xmltodict
 import requests
+import xmltodict
+import json
+import toml
+import os
+from datetime import datetime
+import subprocess
 
-RSS_URL = "https://rss.accuweather.com/rss/liveweather_rss.asp?metric=1&locCode=ASI%7CIN%7CKA%7CBENGALURU"
-TOPIC = "weather-updates"
-SUB = "weather-sub"
-BUCKET = "weather-xml-json-storage"
+# 1. Fetch RSS XML
+rss_url = "https://rss.accuweather.com/rss/liveweather_rss.asp?metric=1&locCode=ASI%7CIN%7CKA%7CBENGALURU"
+response = requests.get(rss_url)
+xml = response.text
 
-timestamp = os.popen("date +%Y%m%d_%H%M%S").read().strip()
-json_file = f"rss_{timestamp}.json"
-toml_file = f"bengaluru_weather_{timestamp}.toml"
+# 2. Try parsing XML safely
+try:
+    json_data = xmltodict.parse(xml)
+except Exception as e:
+    print("Failed to parse XML:", e)
+    print("Raw XML:")
+    print(xml)
+    exit(1)
 
-# Step 1: Download XML
-xml = requests.get(RSS_URL).content
+# 3. Convert to JSON and TOML
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+json_file = f"/tmp/rss_weather_{timestamp}.json"
+toml_file = f"/tmp/rss_weather_{timestamp}.toml"
 
-# Step 2: Convert XML to JSON
-json_data = xmltodict.parse(xml)
+with open(json_file, "w") as f_json:
+    json.dump(json_data, f_json, indent=2)
 
-with open(json_file, "w") as f:
-    json.dump(json_data, f, indent=2)
+with open(toml_file, "w") as f_toml:
+    toml.dump(json_data, f_toml)
 
-# Step 3: Publish JSON to Pub/Sub
-b64 = base64.b64encode(open(json_file, "rb").read()).decode()
-os.system(f'gcloud pubsub topics publish {TOPIC} --message="{b64}"')
+# 4. Publish JSON to Pub/Sub
+subprocess.run([
+    "gcloud", "pubsub", "topics", "publish", "weather-topic",
+    "--message", json.dumps(json_data)
+], check=True)
 
-# Step 4: Pull from subscription
-out = os.popen(f'gcloud pubsub subscriptions pull {SUB} --limit=1 --auto-ack --format="value(message.data)"').read()
-decoded = base64.b64decode(out.strip())
-
-with open(json_file, "wb") as f:
-    f.write(decoded)
-
-# Step 5: Convert JSON to TOML
-with open(json_file) as jf:
-    data = json.load(jf)
-with open(toml_file, "w") as tf:
-    toml.dump(data, tf)
-
-# Step 6: Upload TOML to GCS
-os.system(f'gsutil cp {toml_file} gs://{BUCKET}/{toml_file}')
+# 5. Upload TOML to GCS
+subprocess.run([
+    "gcloud", "storage", "cp", toml_file, f"gs://your-bucket-name/rss_data/"
+], check=True)
